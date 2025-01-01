@@ -8,6 +8,7 @@ format '[1,2],[3,4],[5,6]' and prints the transpose in the same format.
 
 response = client.chat.completions.create(
     model="o1-mini",
+    # model = "gpt-4o-mini",
     messages=[
         {
             "role": "user", 
