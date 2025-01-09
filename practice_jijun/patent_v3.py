@@ -2,6 +2,7 @@ import openai
 import os
 import logging
 from dotenv import load_dotenv
+import time
 
 # 加载环境变量
 load_dotenv()
@@ -11,30 +12,36 @@ openai.api_key = os.getenv('OPENAI_API_KEY')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 定义使用的模型名称
-MODEL_NAME = "gpt-4-mini"
+MODEL_NAME = "gpt-4o-mini"
+
+# Initialize the OpenAI client
+client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 def generate_completion(model, messages, max_tokens):
     """
-    调用 OpenAI API 生成回复。
+    Call OpenAI API to generate a response.
 
-    :param model: 使用的模型名称
-    :param messages: 消息列表，包含系统和用户消息
-    :param max_tokens: 回复的最大长度
-    :return: 模型生成的回复文本
+    :param model: Model name to use
+    :param messages: List of messages, including system and user messages
+    :param max_tokens: Maximum length of the response
+    :return: Generated response text from the model
     """
     try:
-        response = openai.ChatCompletion.acreate(
+        response = client.chat.completions.create(
             model=model,
             messages=messages,
             max_tokens=max_tokens,
-            timeout=10  # 设置超时时间为10秒
+            timeout=10  # Set timeout to 10 seconds
         )
-        content = response.choices[0].message['content'].strip()
-        logging.info(f"模型 {model} 成功生成回复。")
+        print(response.choices[0].message)
+        content = response.choices[0].message.content.strip()
+        logging.info(f"Model {model} successfully generated a response.")
         return content
-    except openai.error.OpenAIError as e:
-        logging.error(f"OpenAI API 调用失败: {e}")
+    except openai.APIError as e:
+        logging.error(f"OpenAI API call failed: {e}")
         return None
+
+
 
 def save_to_file(filename, content):
     """
@@ -113,23 +120,65 @@ def step3_answer_questions():
     return step3_output
 
 def step4_customize_patent(step3_content):
-    step4_input = f"""
-    针对以下问题解决方案：为 Mercedes Benz 写出定制化的专利，优化，加入 Mercedes 数据科学家和研究科学家的理解，技术负责人加入更多技术实现和算法的细节。将这部分进一步的细节公式化，模型化，以便专利不会被查出重复。
+    """
+    为 Mercedes Benz 定制化撰写专利，包括优化问题解决方案，补充更多技术细节和公式化描述。
+
+    :param step3_content: 来自前一步的专利解决方案内容
+    :return: 专利撰写的详细内容
+    """
+    # 第一部分：生成专利的大纲
+    outline_prompt = f"""
+    请根据以下问题解决方案，为 Mercedes Benz 撰写专利的大纲，包括关键模块和需要补充的技术细节：
 
     问题解决方案：
-
     {step3_content}
     """
-    step4_output = generate_completion(
+    outline = generate_completion(
         model=MODEL_NAME,
         messages=[
-            {"role": "user", "content": step4_input}
+            {"role": "user", "content": outline_prompt}
         ],
-        max_tokens=1500
+        max_tokens=500  # 控制输出为大纲
     )
-    if step4_output:
-        save_to_file("step4_output.txt", step4_output)
-    return step4_output
+
+    if not outline:
+        logging.error("生成专利大纲失败，终止流程。")
+        return None
+
+    save_to_file("step4_outline.txt", outline)
+
+    # 第二部分：根据大纲生成详细的专利内容
+    detailed_prompt = f"""
+    根据以下专利大纲，补充技术细节、实现方法和算法描述，确保专利内容完整、公式化，并避免重复性：
+
+    专利大纲：
+    {outline}
+    """
+    detailed_content = None
+    retries = 3  # 最大重试次数
+    for attempt in range(retries):
+        try:
+            detailed_content = generate_completion(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "user", "content": detailed_prompt}
+                ],
+                max_tokens=1200,  # 输出详细内容
+            )
+            if detailed_content:
+                break
+        except openai.error.Timeout as e:
+            logging.warning(f"生成详细专利内容超时，第 {attempt + 1} 次重试中...")
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)  # 指数退避机制
+            else:
+                logging.error("达到最大重试次数，生成专利内容失败。")
+                return None
+
+    if detailed_content:
+        save_to_file("step4_detailed_content.txt", detailed_content)
+        logging.info("专利详细内容生成完成。")
+    return detailed_content
 
 def main():
     logging.info("开始执行专利生成流程。")
