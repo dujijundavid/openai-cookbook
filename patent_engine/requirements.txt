@@ -1,0 +1,8 @@
+openai
+sqlalchemy
+dotenv
+textract
+faiss-cpu
+argparse
+logging
+numpy
